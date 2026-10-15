@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+data/
+.pytest_cache/
+gate-report.md
+gate-result.json
+# terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars

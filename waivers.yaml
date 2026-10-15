@@ -1,0 +1,7 @@
+# Approved exceptions for the CLI gate. Each waiver needs a reason, an approver and an expiry.
+# Example:
+#   - case_id: MED-004
+#     reason: Known limitation, fix tracked in issue 42
+#     approver: safety.lead
+#     expires_at: 2026-12-31
+waivers: []

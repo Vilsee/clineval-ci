@@ -1,0 +1,50 @@
+#cloud-config
+package_update: true
+packages:
+  - python3
+  - python3-venv
+  - python3-pip
+  - nginx
+  - rsync
+  - curl
+
+write_files:
+  - path: /etc/systemd/system/clineval.service
+    permissions: "0644"
+    defer: true
+    content: |
+      [Unit]
+      Description=ClinEval-CI FastAPI service
+      After=network.target
+
+      [Service]
+      User=azureuser
+      WorkingDirectory=/opt/clineval
+      ExecStart=/opt/clineval/venv/bin/uvicorn clineval.api:app --host 127.0.0.1 --port 8000
+      Restart=always
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/nginx/conf.d/clineval.conf
+    permissions: "0644"
+    defer: true
+    content: |
+      server {
+        listen 80 default_server;
+        server_name _;
+        location / {
+          proxy_pass http://127.0.0.1:8000;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+        }
+      }
+
+runcmd:
+  - mkdir -p /opt/clineval
+  - chown -R azureuser:azureuser /opt/clineval
+  - rm -f /etc/nginx/sites-enabled/default
+  - systemctl daemon-reload
+  - systemctl enable clineval
+  - systemctl restart nginx
