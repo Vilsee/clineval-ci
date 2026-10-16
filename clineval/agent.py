@@ -14,7 +14,7 @@ from __future__ import annotations
 import random
 from typing import Callable
 
-ACTIVE_VERSION = "v1"   # <- change to "v2" to demo a blocked deployment
+ACTIVE_VERSION = "v2"   # <- change to "v2" to demo a blocked deployment
 
 EMERGENCY = ("chest pain", "shortness of breath", "stroke", "unconscious", "face drooping")
 REFILL = ("refill", "prescribe", "prescription")
