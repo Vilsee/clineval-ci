@@ -1,0 +1,12 @@
+# Remote state in Azure Blob Storage (state locking + shared state for teams/CI).
+# 1) cd bootstrap && terraform init && terraform apply     (creates the storage account)
+# 2) copy this file to backend.tf and fill in the storage account name from the output
+# 3) terraform init -migrate-state
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "clineval-tfstate-rg"
+    storage_account_name = "REPLACE_WITH_bootstrap_output_storage_account_name"
+    container_name       = "tfstate"
+    key                  = "clineval.dev.tfstate"
+  }
+}

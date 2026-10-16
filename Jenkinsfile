@@ -1,4 +1,5 @@
-// ClinEval-CI pipeline: checkout -> build -> test -> eval gate -> deploy (local or Azure VM) -> smoke test
+// ClinEval-CI pipeline:
+// checkout -> build -> unit tests -> terraform validate -> eval gate -> deploy (local or Azure VM) -> smoke test
 pipeline {
   agent any
 
@@ -43,6 +44,20 @@ pipeline {
     stage('Unit Tests') {
       steps {
         sh 'venv/bin/pytest -q'
+      }
+    }
+
+    // Validates the Terraform code without touching Azure (no credentials needed).
+    // Marked UNSTABLE instead of failing the build if the tool is missing or the code is invalid.
+    stage('Terraform Validate') {
+      steps {
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          sh '''
+            terraform version
+            terraform -chdir=terraform init -backend=false -input=false
+            terraform -chdir=terraform validate
+          '''
+        }
       }
     }
 

@@ -53,7 +53,7 @@ Not done: the skill's browser `inspect.mjs` (needs Chrome) and its real-photo so
 
 | Requirement | Where it is done |
 |---|---|
-| Terraform: Resource Group, VNet, Subnet, NIC, Public IP, VM | `terraform/main.tf` (+ NSG, cloud-init) |
+| Terraform: Resource Group, VNet, Subnet, NIC, Public IP, VM | `terraform/` modules `network` and `compute` (+ NSG, cloud-init); see `terraform/README.md` |
 | Terraform config stored in Git | `terraform/` folder in this repo |
 | Jenkins installed and configured | `jenkins/` (Docker) , Step 5 |
 | Pipeline: checkout, build, deploy | `Jenkinsfile` |

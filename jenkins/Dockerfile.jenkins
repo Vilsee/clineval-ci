@@ -1,7 +1,12 @@
 FROM jenkins/jenkins:lts-jdk17
 USER root
+ARG TF_VERSION=1.9.8
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 python3-venv python3-pip rsync openssh-client curl git \
+ && apt-get install -y --no-install-recommends python3 python3-venv python3-pip rsync openssh-client curl git unzip ca-certificates \
+ && ARCH="$(dpkg --print-architecture)" \
+ && curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_${ARCH}.zip" -o /tmp/terraform.zip \
+ && unzip -q /tmp/terraform.zip -d /usr/local/bin \
+ && rm /tmp/terraform.zip \
  && rm -rf /var/lib/apt/lists/*
 USER jenkins
 RUN jenkins-plugin-cli --plugins git github workflow-aggregator credentials-binding ssh-agent pipeline-stage-view

@@ -5,8 +5,12 @@ data/
 .pytest_cache/
 gate-report.md
 gate-result.json
-# terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.*
+# terraform (keep .terraform.lock.hcl committed)
+**/.terraform/
+*.tfstate
+*.tfstate.*
 terraform/terraform.tfvars
+terraform/backend.tf
+terraform/tfplan
+.agents/
+.taste-skill/

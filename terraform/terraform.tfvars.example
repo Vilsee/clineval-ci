@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored) and edit.
+prefix          = "clineval"
+environment     = "dev"
+location        = "centralindia"
+vm_size         = "Standard_B1s"
+public_key_path = "~/.ssh/azure_clineval.pub"
+ssh_source_cidr = "*" # restrict to your IP, e.g. "203.0.113.7/32", after the demo
