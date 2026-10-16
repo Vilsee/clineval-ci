@@ -1,6 +1,10 @@
-// ClinEval-CI pipeline: checkout -> build -> test -> eval gate -> deploy to Azure VM -> smoke test
+// ClinEval-CI pipeline: checkout -> build -> test -> eval gate -> deploy (local or Azure VM) -> smoke test
 pipeline {
   agent any
+
+  parameters {
+    choice(name: 'DEPLOY_TARGET', choices: ['local', 'azure'], description: 'Where to deploy after the gate passes')
+  }
 
   options {
     timestamps()
@@ -8,7 +12,6 @@ pipeline {
     buildDiscarder(logRotator(numToKeepStr: '15'))
   }
 
-  // Poll SCM every ~2 minutes. (Optionally add githubPush() and configure a GitHub webhook.)
   triggers {
     pollSCM('H/2 * * * *')
   }
@@ -16,6 +19,7 @@ pipeline {
   environment {
     VM_USER  = 'azureuser'
     SSH_OPTS = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+    LIVE_DIR = '/var/jenkins_home/clineval-live'
   }
 
   stages {
@@ -42,7 +46,6 @@ pipeline {
       }
     }
 
-    // The CI/CD safety net: a regressed agent fails here (exit code 1) and is never deployed.
     stage('Eval Gate') {
       steps {
         sh 'venv/bin/python -m clineval.cli lint'
@@ -56,7 +59,29 @@ pipeline {
       }
     }
 
+    stage('Deploy (local)') {
+      when { expression { params.DEPLOY_TARGET == 'local' } }
+      steps {
+        withEnv(['JENKINS_NODE_COOKIE=dontKillMe']) {
+          sh '''
+            set -e
+            mkdir -p "$LIVE_DIR"
+            rsync -a --delete --exclude '.git' --exclude 'venv' --exclude 'data' --exclude '__pycache__' \
+              --exclude 'terraform' --exclude 'jenkins' --exclude 'app.pid' --exclude 'app.log' ./ "$LIVE_DIR"/
+            cd "$LIVE_DIR"
+            [ -d venv ] || python3 -m venv venv
+            venv/bin/pip install -q -r requirements.txt
+            if [ -f app.pid ]; then kill "$(cat app.pid)" 2>/dev/null || true; sleep 1; fi
+            setsid nohup venv/bin/uvicorn clineval.api:app --host 0.0.0.0 --port 8000 > app.log 2>&1 < /dev/null &
+            echo $! > app.pid
+            echo "App started with pid $(cat app.pid)"
+          '''
+        }
+      }
+    }
+
     stage('Deploy to Azure VM') {
+      when { expression { params.DEPLOY_TARGET == 'azure' } }
       steps {
         withCredentials([string(credentialsId: 'azure-vm-ip', variable: 'VM_IP')]) {
           sshagent(credentials: ['azure-vm-ssh']) {
@@ -74,20 +99,31 @@ pipeline {
 
     stage('Smoke Test') {
       steps {
-        withCredentials([string(credentialsId: 'azure-vm-ip', variable: 'VM_IP')]) {
-          sh '''
-            sleep 3
-            curl -fsS http://${VM_IP}/api/health
-            echo
-            curl -fsS -o /dev/null -w "Dashboard HTTP %{http_code}\\n" http://${VM_IP}/
-          '''
+        script {
+          if (params.DEPLOY_TARGET == 'local') {
+            sh '''
+              sleep 4
+              curl -fsS http://localhost:8000/api/health
+              echo
+              curl -fsS -o /dev/null -w "Dashboard HTTP %{http_code}\\n" http://localhost:8000/app
+            '''
+          } else {
+            withCredentials([string(credentialsId: 'azure-vm-ip', variable: 'VM_IP')]) {
+              sh '''
+                sleep 3
+                curl -fsS http://${VM_IP}/api/health
+                echo
+                curl -fsS -o /dev/null -w "Dashboard HTTP %{http_code}\\n" http://${VM_IP}/app
+              '''
+            }
+          }
         }
       }
     }
   }
 
   post {
-    success { echo 'Deployed successfully. App is live on the Azure VM.' }
-    failure { echo 'Pipeline failed - nothing was deployed (or deployment was rolled back by the health check).' }
+    success { echo "Deployed successfully (${params.DEPLOY_TARGET})." }
+    failure { echo 'Pipeline failed. Nothing new was deployed.' }
   }
 }
