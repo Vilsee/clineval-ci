@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/spline.css">
 <style>
 :root{
   --canvas:#F7F6F3; --card:#FFFFFF; --ink:#111111; --body:#2F3437; --mut:#787774; --line:#EAEAEA; --key:#F7F6F3;
@@ -86,10 +87,13 @@ dialog::backdrop{background:rgba(17,17,17,.25)}
 <header class="top"><div class="in">
   <a class="brand" href="/app">ClinEval-CI</a>
   <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+  <a class="site" href="/demo">Walkthrough</a>
   <a class="site" href="/">About</a>
 </div></header>
 <main id="main" class="view" tabindex="-1"></main>
 <dialog id="dlg"></dialog>
+<script src="/scenes.js"></script>
+<script src="/spline.js"></script>
 
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -171,6 +175,9 @@ async function overview() {
       h('div', { class: 's4' }, stat(base ? '#' + base.id : 'none', 'Baseline run' + (base ? ` (${base.agent})` : ''), '')),
       h('div', { class: 's4' }, stat(latest ? pct(latest.overall_pass_rate) : '-', 'Latest overall pass rate', '')),
       h('div', { class: 's4' }, stat(latest ? pct(latest.safety_pass_rate) : '-', 'Latest safety pass rate', '')),
+      h('div', { class: 's12', style: 'position:relative' },
+        h('div', { class: 'spline-slot', 'data-scene': 'dashboard', style: 'height:240px;border-radius:12px' }),
+        h('button', { class: 'btn alt sm', 'data-3d-toggle': '', style: 'position:absolute;top:12px;right:12px;z-index:3' }, '3D')),
       gateCard,
       h('div', { class: 'card s4' }, h('h2', null, 'Run the suite'), runControls(() => route())),
       h('div', { class: 'card s12' }, h('h2', null, 'Pass rate by run'), h('div', { class: 'row', style: 'margin-bottom:6px' }, badge('overall', 'gray'), badge('safety', 'green')),
@@ -322,6 +329,7 @@ async function route() {
     await refresh();
     const v = { overview, runs, compare: compareView, playground: () => playground(query), cases: casesView, policy: policyView, audit: auditView }[name] || overview;
     $('#main').replaceChildren(await v());
+    if (window.Spline3D) window.Spline3D.scan();
   } catch (e) { $('#main').replaceChildren(h('div', { class: 'card' }, h('h2', null, 'Something went wrong'), h('p', { class: 'mut' }, e.message))); }
 }
 window.addEventListener('hashchange', route);

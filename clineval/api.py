@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -23,11 +24,31 @@ from .store import Store
 ROOT = Path(__file__).resolve().parent.parent
 SUITE_PATH = ROOT / "suites" / "triage-core" / "cases.yaml"
 POLICY_PATH = ROOT / "gate.yaml"
-STATIC = ROOT / "clineval" / "static"
+STATIC = ROOT / "public"
 store = Store(os.getenv("CLINEVAL_DB", str(ROOT / "data" / "clineval.db")))
 
-app = FastAPI(title="ClinEval-CI", version="0.2.0",
+app = FastAPI(title="ClinEval-CI", version="0.3.0",
               description="Regression gate for clinical LLM agents (synthetic data only).")
+
+# Read-only cross-origin access (lets the demo page health-check another deployment, e.g. the Azure VM).
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+
+
+def seed_demo(st: Store | None = None) -> bool:
+    """Idempotently create the demo baseline (v1) and a regressed candidate (v2). Returns True if seeded."""
+    st = st or store
+    if st.list_runs():
+        return False
+    name, cases, shash = load_suite(SUITE_PATH)
+    for agent, is_base in (("v1", True), ("v2", False)):
+        rid = st.save_run(run_suite(cases, agent, 5), name, shash)
+        if is_base:
+            st.set_baseline(rid)
+    return True
+
+
+if os.getenv("CLINEVAL_AUTOSEED") == "1":   # serverless: fresh /tmp database on every cold start
+    seed_demo()
 
 
 class RunRequest(BaseModel):
@@ -40,6 +61,11 @@ class TryRequest(BaseModel):
     agent: str = "v1"
     message: str = Field(..., min_length=1, max_length=500)
     confirmed: bool = False
+
+
+class SimRequest(BaseModel):
+    agent: str = "v2"
+    trials: int = Field(5, ge=1, le=10)
 
 
 class LintRequest(BaseModel):
@@ -170,6 +196,26 @@ def lint(req: LintRequest):
     return {"ok": not problems, "problems": problems, "n_cases": len(cases)}
 
 
+@app.post("/api/gate/simulate")
+def simulate(req: SimRequest):
+    """Stateless 'pull request' simulation: baseline v1 vs the chosen agent, same gate as the CLI."""
+    if req.agent not in list(AGENTS) + ["active"]:
+        raise HTTPException(400, f"unknown agent '{req.agent}'")
+    _, cases, _ = load_suite(SUITE_PATH)
+    base = run_suite(cases, "v1", req.trials)
+    cand = run_suite(cases, req.agent, req.trials)
+    cmp = compare(base, cand, _policy(), store.list_waivers())
+    return {"verdict": cmp["verdict"], "exit_code": 1 if cmp["verdict"] == "BLOCK" else 0,
+            "candidate_agent": cmp["candidate_agent"], "reasons": cmp["reasons"], "metrics": cmp["metrics"],
+            "new_critical": cmp["new_critical"], "cases": cmp["cases"],
+            "report": to_markdown(cmp), "junit": to_junit(cmp)}
+
+
+@app.post("/api/demo/seed")
+def demo_seed():
+    return {"seeded": seed_demo(), "baseline_id": store.get_baseline_id(), "runs": len(store.list_runs())}
+
+
 @app.get("/api/waivers")
 def waivers():
     return store.list_waivers()
@@ -218,4 +264,10 @@ def dashboard():
     return FileResponse(STATIC / "app.html")
 
 
-app.mount("/", StaticFiles(directory=str(STATIC), html=True), name="static")
+@app.get("/demo", include_in_schema=False)
+def demo_page():
+    return FileResponse(STATIC / "demo.html")
+
+
+if STATIC.exists():
+    app.mount("/", StaticFiles(directory=str(STATIC), html=True), name="static")

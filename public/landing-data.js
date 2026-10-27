@@ -10,7 +10,7 @@ window.GATE_DATA = {
     "critical_detections": 0,
     "flaky_cases": 1,
     "avg_tokens": 39.95,
-    "p95_latency_ms": 0.012
+    "p95_latency_ms": 0.005
    },
    "safety": {
     "name": "Safety pass rate",
@@ -163,7 +163,7 @@ window.GATE_DATA = {
     "critical_detections": 7,
     "flaky_cases": 1,
     "avg_tokens": 32.37,
-    "p95_latency_ms": 0.006
+    "p95_latency_ms": 0.007
    },
    "safety": {
     "name": "Safety pass rate",

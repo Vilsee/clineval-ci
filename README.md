@@ -49,6 +49,29 @@ Not done: the skill's browser `inspect.mjs` (needs Chrome) and its real-photo so
 
 `POST /api/try` (playground) | `POST /api/lint` | `GET/POST/DELETE /api/waivers` | `POST /api/baseline/{id}` | `GET /api/compare/report.md` | `GET /api/compare/junit.xml` | `GET /api/audit` | `GET /api/evidence` | `GET /api/policy` | interactive docs at `/docs`
 
+## Deploy to Vercel
+
+The static pages are served from `public/` and the FastAPI app runs as a Python serverless function (`api/index.py`).
+Vercel's disk is temporary, so the app re-creates the demo runs (baseline v1 and regressed v2) each time it starts.
+
+**Option A (recommended): import from GitHub.** Go to vercel.com/new, import `clineval-ci`, set Framework Preset to
+**Other**, leave the build command empty and the output directory `public` (they come from `vercel.json`), and deploy.
+Every push to `main` then redeploys automatically.
+
+**Option B: CLI.**
+```powershell
+npm i -g vercel
+vercel login
+vercel --prod
+```
+After the first deploy, put the URL in `public/demo-config.js` (`vercel:`) and push.
+
+## Presentation
+
+Open `/demo`. It maps to the evaluation rubric: Terraform source viewer, the Jenkins stages (parsed from the real `Jenkinsfile`),
+a live gate simulation, deployment health cards, certification and an architecture diagram. Add screenshots to `public/evidence/`.
+The full script and fallbacks are in `DEMO.md`.
+
 ## Assignment requirement checklist (for your professor)
 
 | Requirement | Where it is done |
@@ -79,12 +102,12 @@ git --version && python3 --version && docker --version && terraform -version && 
 cd clineval-ci
 python3 -m venv venv
 source venv/bin/activate            # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-pytest -q                           # expect: 16 passed
+pip install -r requirements-dev.txt
+pytest -q                           # expect: 20 passed
 python -m clineval.cli gate         # expect: PASS (exit code 0)
 uvicorn clineval.api:app --reload   # open http://127.0.0.1:8000
 ```
-Open `http://127.0.0.1:8000` for the landing page and `http://127.0.0.1:8000/app` for the dashboard. In the dashboard click **Demo: v1 then v2**: v1 becomes the baseline, regressed v2 is compared against it and you get a **Merge blocked** verdict. Then try Compare (confidence-interval bars and Waive buttons), Playground, Cases (linter) and Audit.
+Open `http://127.0.0.1:8000` for the landing page, `/app` for the dashboard and `/demo` for the presentation walkthrough. In the dashboard click **Demo: v1 then v2**: v1 becomes the baseline, regressed v2 is compared against it and you get a **Merge blocked** verdict. Then try Compare (confidence-interval bars and Waive buttons), Playground, Cases (linter) and Audit.
 
 **What each file does**
 
@@ -100,7 +123,11 @@ Open `http://127.0.0.1:8000` for the landing page and `http://127.0.0.1:8000/app
 | `clineval/api.py` | REST API + serves the landing page (`/`) and dashboard (`/app`) |
 | `clineval/policy.py`, `gate.yaml`, `waivers.yaml` | Gate policy and approved exceptions |
 | `clineval/export.py` | JUnit XML and evidence bundle |
-| `clineval/static/index.html`, `app.html` | Landing page and dashboard |
+| `public/index.html`, `app.html`, `demo.html` | Landing page, dashboard and the rubric walkthrough (`/demo`) |
+| `public/spline.js`, `scenes.js` | Lazy 3D scenes with an on/off switch; change scene links in `scenes.js` |
+| `public/demo-config.js` | Edit before presenting: certificate, Vercel URL, Azure URL, timer |
+| `api/index.py`, `vercel.json` | Vercel serverless entrypoint and routing |
+| `DEMO.md` | Presentation script, fallbacks and viva answers |
 | `.github/workflows/clineval.yml` | PR gate + comment on GitHub |
 | `clineval/cli.py` | `lint`, `run`, `baseline`, `gate` (used by Jenkins) |
 | `suites/triage-core/baseline.json` | Stored baseline run the gate compares against |

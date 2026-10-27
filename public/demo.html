@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClinEval-CI: project walkthrough</title>
+<meta name="description" content="Terraform, Jenkins, Azure and Vercel: a clinical AI merge gate from commit to production.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/spline.css">
+<style>
+:root{
+  --bg:#0c0a08; --surface:#181512; --surface-2:#221e19; --surface-3:#2e2923; --ink:#fff; --soft:#8f8a84;
+  --accent:#c9a45a; --accent-ink:#0c0a08; --pass:#3fbf8a; --block:#ef6f5e;
+  --margin:clamp(20px,2.8vw,40px); --radius:8px; --ease:cubic-bezier(.16,1,.3,1);
+  font-family:'Schibsted Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--ink);font-size:clamp(1.0625rem,1rem + .25vw,1.1875rem);line-height:1.45;letter-spacing:-.01em;overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+h1,h2,h3{margin:0;font-weight:800;letter-spacing:-.05em;line-height:.95}
+p{margin:0}
+button{font-family:inherit}
+
+.bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:clamp(12px,2vw,28px);padding:14px var(--margin);background:var(--bg)}
+.wordmark{font-weight:800;font-size:1.2rem;letter-spacing:-.04em;text-decoration:none}
+.bar nav{display:flex;gap:clamp(10px,1.6vw,22px);flex:1;overflow-x:auto}
+.bar nav a{font-weight:600;font-size:15px;text-decoration:none;color:var(--soft);padding:8px 2px;white-space:nowrap;transition:color .2s}
+.bar nav a:hover,.bar nav a.on{color:#fff}
+.timer{font:600 14px/1 'Schibsted Grotesk',system-ui,sans-serif;font-variant-numeric:tabular-nums;background:var(--surface-2);color:#fff;border:0;border-radius:var(--radius);padding:11px 14px;cursor:pointer;min-height:40px}
+.timer.warn{background:#44211b;color:var(--block)}
+.btn{display:inline-block;font:600 14px/1 'Schibsted Grotesk',system-ui,sans-serif;padding:14px 18px;border:0;border-radius:var(--radius);cursor:pointer;text-decoration:none;color:#fff;background:var(--surface-3);transition:transform .2s var(--ease),filter .2s;min-height:44px}
+.btn:hover{filter:brightness(1.15)} .btn:active{transform:scale(.97)} .btn:disabled{opacity:.5;cursor:wait}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+
+.hero{display:grid;grid-template-columns:repeat(12,1fr);column-gap:8px;padding:clamp(28px,5vw,72px) var(--margin) 0;align-items:end}
+.hero .copy{grid-column:1 / 7;padding-bottom:28px}
+.hero h1{font-size:clamp(44px,5.2vw,80px);max-width:9em}
+.hero .lead{margin-top:22px;max-width:44ch;font-size:18px}
+.hero .meta{margin-top:18px;color:var(--soft);font-size:16px}
+.hero .stage{grid-column:7 / 13;position:relative;height:min(52vh,460px)}
+.hero .stage .spline-slot{position:absolute;inset:0}
+.hero .stage .s3d-toggle{position:absolute;right:12px;top:12px;z-index:3}
+
+.strip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:28px var(--margin) 0}
+.card{background:var(--surface);border-radius:var(--radius);padding:18px}
+.strip a{text-decoration:none;display:flex;flex-direction:column;gap:12px;justify-content:space-between;min-height:132px;transition:background .2s}
+.strip a:hover{background:var(--surface-2)}
+.strip b{font-size:20px;letter-spacing:-.03em;line-height:1.1}
+.chip{display:inline-block;font:600 13px/1 'Schibsted Grotesk',system-ui,sans-serif;padding:6px 10px;border-radius:6px;align-self:flex-start}
+.chip.done{background:#12372a;color:var(--pass)} .chip.partial{background:#3a3016;color:var(--accent)} .chip.pending{background:#44211b;color:var(--block)}
+
+section.block{padding:clamp(64px,8vw,120px) var(--margin) 0}
+.head{display:grid;grid-template-columns:repeat(12,1fr);column-gap:8px;margin-bottom:28px;align-items:end}
+.head h2{grid-column:1 / 7;font-size:clamp(34px,4.2vw,64px)}
+.head p{grid-column:7 / 13;color:var(--soft);font-size:17px;max-width:46ch}
+
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:8px}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+
+/* source viewer */
+[data-ui]{font-size:14px;line-height:1.5;letter-spacing:0}
+.files{display:flex;flex-direction:column;max-height:430px;overflow:auto;padding:8px}
+.files button{text-align:left;background:transparent;border:0;color:var(--soft);font:14px/1.3 ui-monospace,'SF Mono',Menlo,Consolas,monospace;padding:9px 10px;border-radius:6px;cursor:pointer;min-height:36px;transition:background .2s,color .2s} /* taste-skill-ignore: literal code (paths, resource types, diff, terminal output) */
+.files button:hover{background:var(--surface-2);color:#fff}
+.files button[aria-current=true]{background:#fff;color:#0c0a08}
+.code{position:relative;padding:0}
+.code .top{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 14px;background:var(--surface-2);border-radius:var(--radius) var(--radius) 0 0}
+.code .top span{font:13px ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:var(--soft)}
+.code pre{margin:0;padding:14px;max-height:380px;overflow:auto;font:13px/1.6 ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:#f0e6d2;tab-size:2}
+.mini{font:600 13px/1 'Schibsted Grotesk',system-ui,sans-serif;background:var(--surface-3);color:#fff;border:0;border-radius:6px;padding:9px 12px;cursor:pointer;min-height:36px}
+.mini:hover{filter:brightness(1.2)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kpis .card{padding:16px}
+.kpis strong{display:block;font-size:34px;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.kpis span{color:var(--soft);font-size:15px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tag{font:13px ui-monospace,'SF Mono',Menlo,Consolas,monospace;background:var(--surface-2);padding:6px 9px;border-radius:6px;color:#e9e4dc} /* taste-skill-ignore: literal code (paths, resource types, diff, terminal output) */
+.cmds{display:grid;gap:6px}
+.cmd{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface-2);border-radius:6px;padding:8px 8px 8px 12px}
+.cmd code{font:13px ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:#f0e6d2;overflow-x:auto;white-space:nowrap}
+
+/* pipeline */
+.pipe{display:flex;gap:6px;flex-wrap:wrap}
+.stg{flex:1 1 130px;min-width:120px;background:var(--surface-2);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:10px;transition:background .3s}
+.stg b{font-size:15px;line-height:1.2;letter-spacing:-.02em}
+.stg small{font-size:13px;color:var(--soft)}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--surface-3);transition:background .3s}
+.stg.run{background:var(--surface-3)} .stg.run .dot{background:var(--accent)}
+.stg.ok .dot{background:var(--pass)} .stg.fail{background:#44211b} .stg.fail .dot{background:var(--block)}
+.stg.skip{opacity:.55}
+.choices{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+.choices button{flex:1 1 220px;text-align:left;background:var(--surface-2);color:#fff;border:0;border-radius:var(--radius);padding:14px;cursor:pointer;font-size:16px;min-height:60px;transition:background .2s}
+.choices button[aria-pressed=true]{background:#fff;color:#0c0a08}
+.choices small{display:block;font-size:13px;opacity:.7;margin-top:4px}
+.diff{margin:0;padding:14px;background:var(--surface-2);border-radius:var(--radius);font:13px/1.6 ui-monospace,'SF Mono',Menlo,Consolas,monospace;overflow-x:auto} /* taste-skill-ignore: literal code (paths, resource types, diff, terminal output) */
+.diff .a{color:var(--pass)} .diff .d{color:var(--block)}
+.log{margin:0;padding:14px;min-height:150px;max-height:340px;overflow:auto;background:var(--surface-2);border-radius:var(--radius);font:13px/1.6 ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:#e9e4dc;white-space:pre-wrap} /* taste-skill-ignore: literal code (paths, resource types, diff, terminal output) */
+.verdict{font-size:clamp(26px,3vw,40px);font-weight:800;letter-spacing:-.04em;line-height:1}
+.verdict.pass{color:var(--pass)} .verdict.block{color:var(--block)}
+.note{color:var(--soft);font-size:15px;margin-top:10px}
+
+/* evidence */
+.ev{margin:0;background:var(--surface);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+.ev img{display:block;width:100%;height:auto}
+.ev .ph{min-height:160px;display:grid;place-items:center;text-align:center;padding:18px;color:var(--soft);font-size:14px;background:var(--surface-2)}
+.ev .ph code{font:13px ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:var(--accent)}
+.ev figcaption{padding:12px 14px;font-size:15px}
+
+/* status cards */
+.stat{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stat .dot.ok{background:var(--pass)} .stat .dot.bad{background:var(--block)} .stat .dot.wait{background:var(--accent)}
+.card h3{font-size:24px;letter-spacing:-.04em;margin-bottom:10px}
+.card p+p{margin-top:8px}
+.card .soft{color:var(--soft);font-size:16px}
+.prog{height:12px;background:var(--surface-3);border-radius:99px;overflow:hidden;margin:12px 0}
+.prog i{display:block;height:100%;background:var(--pass);border-radius:99px}
+.arch svg{width:100%;height:auto;display:block}
+.arch rect{fill:var(--surface-2)} .arch .hl{fill:#fff} .arch text{fill:#fff;font:600 14px 'Schibsted Grotesk',system-ui,sans-serif} .arch .hl+text,.arch .hlt{fill:#0c0a08}
+.arch .sm{font-weight:400;fill:var(--soft);font-size:13px}
+.arch path{stroke:var(--soft);stroke-width:2;fill:none}
+.hint{margin:40px var(--margin) 0;color:var(--soft);font-size:15px}
+footer{padding:80px var(--margin) 60px;color:var(--soft);font-size:15px}
+
+.js [data-reveal]{opacity:0;transform:translateY(20px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.js [data-reveal].in{opacity:1;transform:none}
+@media (max-width:900px){
+  .hero .copy,.hero .stage,.head h2,.head p{grid-column:1 / 13}
+  .hero .stage{height:320px;margin-top:20px}
+  .strip{grid-template-columns:1fr 1fr}
+  .c4,.c5,.c6,.c7,.c8{grid-column:span 12}
+  .kpis{grid-template-columns:1fr 1fr}
+  .head p{margin-top:10px}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.js [data-reveal]{opacity:1;transform:none;transition:none}}
+</style>
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+
+<div class="bar">
+  <a class="wordmark" href="/">ClinEval-CI</a>
+  <nav id="nav" aria-label="Walkthrough sections">
+    <a href="#rubric">Overview</a><a href="#terraform">Terraform</a><a href="#cicd">CI/CD</a><a href="#azure">Deployment</a><a href="#cert">Certification</a><a href="#docs">Docs</a><a href="/app">Dashboard</a>
+  </nav>
+  <button class="timer" id="timer" type="button" title="Click to start or pause. Double-click to reset. Key: T">0:00</button>
+</div>
+
+<header class="hero">
+  <div class="copy">
+    <h1>From commit to production, gated.</h1>
+    <p class="lead">A clinical AI merge gate, provisioned with Terraform, built and tested by Jenkins, and deployed to the cloud only when it passes.</p>
+    <p class="meta" id="meta"></p>
+  </div>
+  <div class="stage">
+    <div class="spline-slot" data-scene="demo"></div>
+    <button type="button" class="s3d-toggle" data-3d-toggle>3D: on</button>
+  </div>
+</header>
+
+<div class="strip" id="strip" aria-label="Evaluation components"></div>
+<p class="hint">Keys: 1 to 5 jump to a section, T starts the timer, S runs the gate simulation.</p>
+
+<section class="block" id="terraform" data-reveal>
+  <div class="head"><h2>Terraform builds the infrastructure.</h2><p>Two modules and a resource group, with typed variables, outputs and optional remote state. Every file below is the real source.</p></div>
+  <div class="kpis" id="tf-kpis"></div>
+  <div class="grid" style="margin-top:8px">
+    <div class="card c4 files" data-ui id="tf-files" role="listbox" aria-label="Project files"></div>
+    <div class="card c8 code" data-ui><div class="top"><span id="code-name"></span><button class="mini" id="code-copy" type="button">Copy</button></div><pre id="code-body"></pre></div>
+    <div class="card c6"><h3>Run it</h3><div class="cmds" id="tf-cmds"></div><p class="note">Validated locally with Terraform. Applying needs an Azure subscription.</p></div>
+    <div class="c6" id="ev-terraform"></div>
+  </div>
+</section>
+
+<section class="block" id="cicd" data-reveal>
+  <div class="head"><h2>Jenkins runs the pipeline.</h2><p>Push a change and the stages run in order. The gate stage below is computed live by the real code, so a bad change is stopped before deploy.</p></div>
+  <div class="card">
+    <div class="pipe" id="pipe" aria-live="polite"></div>
+    <div class="choices" id="choices" role="group" aria-label="Choose a commit to push">
+      <button type="button" data-case="cosmetic" aria-pressed="true">A normal change<small>Edit the landing headline. Agent stays v1.</small></button>
+      <button type="button" data-case="bad" aria-pressed="false">A bad agent change<small>A prompt tweak that regresses safety. Agent becomes v2.</small></button>
+    </div>
+    <pre class="diff" id="diff"></pre>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0">
+      <button class="btn primary" id="push" type="button">Push commit</button>
+      <a class="btn" id="open-jenkins" href="#" target="_blank" rel="noopener">Open real Jenkins</a>
+      <a class="btn" id="open-gh" href="#" target="_blank" rel="noopener">Open GitHub repo</a>
+    </div>
+    <div class="grid">
+      <div class="c7"><pre class="log" id="log" aria-live="polite">Pick a commit and press Push commit.</pre></div>
+      <div class="c5" id="outcome"><p class="note">The result appears here.</p></div>
+    </div>
+    <p class="note">Only the Eval Gate result is computed live. The other stages replay the stage names from the Jenkinsfile for illustration; the real runs are in the screenshots below and in Jenkins.</p>
+  </div>
+  <div class="grid" style="margin-top:8px">
+    <div class="c4" id="ev-green"></div><div class="c4" id="ev-red"></div><div class="c4" id="ev-report"></div>
+  </div>
+</section>
+
+<section class="block" id="azure" data-reveal>
+  <div class="head"><h2>It deploys and stays up.</h2><p>The same app runs locally in a container, on Vercel, and on an Azure VM once a subscription is available. Each card checks its own health endpoint.</p></div>
+  <div class="grid">
+    <div class="card c4" id="card-live"></div>
+    <div class="card c4" id="card-vercel"></div>
+    <div class="card c4" id="card-azure"></div>
+  </div>
+  <div class="grid" style="margin-top:8px"><div class="c6" id="ev-github"></div><div class="c6" id="ev-azure"></div></div>
+</section>
+
+<section class="block" id="cert" data-reveal>
+  <div class="head"><h2>The course behind it.</h2><p>The online certification that goes with this project.</p></div>
+  <div class="grid"><div class="card c6" id="card-cert"></div><div class="c6" id="ev-cert"></div></div>
+</section>
+
+<section class="block" id="docs" data-reveal>
+  <div class="head"><h2>How it fits together.</h2><p>One repository drives everything: Terraform for the servers, Jenkins for the checks, the gate for safety.</p></div>
+  <div class="card arch">
+    <svg viewBox="0 0 960 300" role="img" aria-label="Architecture: Developer pushes to GitHub, which triggers Jenkins; Jenkins validates Terraform, runs the gate and deploys to a local container or an Azure VM; GitHub also deploys to Vercel.">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8f8a84" stroke="none"/></marker></defs>
+      <rect x="10" y="110" width="130" height="64" rx="8"/><text x="75" y="147" text-anchor="middle">Developer</text>
+      <rect x="200" y="110" width="130" height="64" rx="8"/><text x="265" y="147" text-anchor="middle">GitHub</text>
+      <rect x="390" y="40" width="230" height="110" rx="8" class="hl"/><text x="505" y="78" text-anchor="middle" class="hlt" style="font-size:17px">Jenkins pipeline</text>
+      <text x="505" y="104" text-anchor="middle" class="hlt" style="font-weight:400;font-size:13px">Build, Tests, Terraform validate,</text>
+      <text x="505" y="124" text-anchor="middle" class="hlt" style="font-weight:400;font-size:13px">Eval Gate, Deploy, Smoke test</text>
+      <rect x="390" y="210" width="230" height="64" rx="8"/><text x="505" y="247" text-anchor="middle">Vercel (serverless)</text>
+      <rect x="690" y="20" width="250" height="64" rx="8"/><text x="815" y="49" text-anchor="middle">Azure VM</text><text x="815" y="69" text-anchor="middle" class="sm">Terraform: VNet, subnet, NSG, IP, VM</text>
+      <rect x="690" y="110" width="250" height="64" rx="8"/><text x="815" y="147" text-anchor="middle">Local container :8000</text>
+      <rect x="690" y="210" width="250" height="64" rx="8"/><text x="815" y="238" text-anchor="middle">Eval Gate</text><text x="815" y="258" text-anchor="middle" class="sm">exit 1 stops the deploy</text>
+      <path d="M140 142H196" marker-end="url(#ah)"/><path d="M330 142H386" marker-end="url(#ah)"/>
+      <path d="M265 174V242H386" marker-end="url(#ah)"/>
+      <path d="M620 80C650 80 650 52 686 52" marker-end="url(#ah)"/><path d="M620 130H686" marker-end="url(#ah)"/>
+      <path d="M690 242H624" marker-end="url(#ah)"/>
+    </svg>
+  </div>
+  <div class="grid" style="margin-top:8px">
+    <div class="card c6"><h3>Source and docs</h3><div class="cmds" id="doc-links"></div></div>
+    <div class="card c6"><h3>Run it yourself</h3><div class="cmds" id="run-cmds"></div></div>
+  </div>
+</section>
+
+<footer>Synthetic demo data. A passing gate is not evidence of clinical safety or regulatory compliance.</footer>
+
+<script src="/demo-config.js"></script>
+<script src="/scenes.js"></script>
+<script src="/spline.js"></script>
+<script>
+(function () {
+  var CFG = window.DEMO_CONFIG || {}, R = CFG.rubric || {}, FILES = {};
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  function el(t, c, x) { var e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  function copy(text, btn) {
+    var p = navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject();
+    p.then(function () { btn.textContent = 'Copied'; }, function () { btn.textContent = 'Select and copy'; });
+    setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+  }
+  function cmdRow(text) { var d = el('div', 'cmd'), c = el('code', '', text), b = el('button', 'mini', 'Copy'); b.type = 'button'; b.onclick = function () { copy(text, b); }; d.append(c, b); return d; }
+  function evidence(id, file, caption) {
+    var f = el('figure', 'ev'), img = new Image(); img.alt = caption; img.src = '/evidence/' + file;
+    var cap = el('figcaption', '', caption);
+    img.onerror = function () { var ph = el('div', 'ph'); ph.append(document.createTextNode('Add screenshot: '), el('code', '', 'public/evidence/' + file)); img.replaceWith(ph); };
+    f.append(img, cap); $(id).append(f);
+  }
+
+  /* ---- header meta + rubric strip ---- */
+  $('#meta').textContent = (CFG.presenter ? CFG.presenter + '. ' : '') + 'Synthetic data only. Not for clinical use.';
+  var items = [['Certification', 'certification', '#cert'], ['Terraform', 'terraform', '#terraform'], ['CI/CD pipeline', 'cicd', '#cicd'], ['Deployment', 'azure', '#azure'], ['Documentation', 'docs', '#docs']];
+  items.forEach(function (it) {
+    var r = R[it[1]] || { status: 'pending', label: 'Not set' }, a = el('a', 'card'); a.href = it[2];
+    a.append(el('b', '', it[0]), el('span', 'chip ' + r.status, r.label)); $('#strip').append(a);
+  });
+  $('#open-jenkins').href = CFG.jenkins || '#'; $('#open-gh').href = CFG.github || '#';
+
+  /* ---- Terraform ---- */
+  var current = null;
+  function show(path) {
+    current = path; $('#code-name').textContent = path; $('#code-body').textContent = FILES[path];
+    document.querySelectorAll('#tf-files button').forEach(function (b) { b.setAttribute('aria-current', String(b.dataset.path === path)); });
+  }
+  $('#code-copy').onclick = function () { if (current) copy(FILES[current], $('#code-copy')); };
+  function kpi(n, l) { var c = el('div', 'card'); c.append(el('strong', '', String(n)), el('span', '', l)); return c; }
+  fetch('/files.json').then(function (r) { return r.json(); }).then(function (data) {
+    FILES = data;
+    var order = Object.keys(FILES).sort(function (a, b) {
+      function w(p) { return p === 'Jenkinsfile' ? 0 : p.indexOf('terraform/') === 0 ? 1 : 2; } return w(a) - w(b) || a.localeCompare(b); });
+    var list = $('#tf-files');
+    order.forEach(function (p) { var b = el('button', '', p); b.type = 'button'; b.dataset.path = p; b.setAttribute('role', 'option'); b.onclick = function () { show(p); }; list.append(b); });
+    var tf = Object.keys(FILES).filter(function (p) { return /^terraform\/(?!bootstrap).*\.tf$/.test(p); });
+    var res = [], vars = 0, mods = 0, outs = 0;
+    tf.forEach(function (p) {
+      var t = FILES[p], m, re = /^\s*resource\s+"([^"]+)"\s+"([^"]+)"/gm;
+      while ((m = re.exec(t))) res.push(m[1]);
+      vars += (t.match(/^\s*variable\s+"/gm) || []).length; mods += (t.match(/^\s*module\s+"/gm) || []).length; outs += (t.match(/^\s*output\s+"/gm) || []).length;
+    });
+    var k = $('#tf-kpis'); k.append(kpi(res.length, 'Azure resources defined'), kpi(mods, 'Modules (network, compute)'), kpi(vars, 'Input variables'), kpi(outs, 'Outputs'));
+    var tags = el('div', 'tags'); res.forEach(function (r) { tags.append(el('span', 'tag', r)); });
+    $('#tf-kpis').after(tags);
+    show('terraform/main.tf');
+    /* pipeline stages come straight from the Jenkinsfile */
+    var jf = FILES['Jenkinsfile'] || '', names = [], m2, re2 = /stage\('([^']+)'\)/g;
+    while ((m2 = re2.exec(jf))) names.push(m2[1]);
+    buildPipe(names.length ? names : ['Checkout', 'Build', 'Unit Tests', 'Terraform Validate', 'Eval Gate', 'Deploy (local)', 'Deploy to Azure VM', 'Smoke Test']);
+    var dl = $('#doc-links');
+    [['Jenkinsfile', 'Jenkinsfile'], ['terraform/README.md', 'Terraform README'], ['gate.yaml', 'Gate policy'], ['suites/triage-core/cases.yaml', 'Test cases']].forEach(function (x) {
+      var b = el('button', 'mini', x[1]); b.type = 'button'; b.style.textAlign = 'left'; b.onclick = function () { if (FILES[x[0]]) { show(x[0]); location.hash = '#terraform'; } }; dl.append(b); });
+    var api = el('a', 'mini', 'API reference (/docs)'); api.href = '/docs'; api.style.textDecoration = 'none'; api.style.display = 'inline-block'; api.style.lineHeight = '18px'; dl.append(api);
+  }).catch(function () { $('#code-body').textContent = 'files.json could not be loaded. Run: python scripts/build_files_json.py'; buildPipe(['Checkout', 'Build', 'Unit Tests', 'Terraform Validate', 'Eval Gate', 'Deploy (local)', 'Deploy to Azure VM', 'Smoke Test']); });
+  ['terraform init', 'terraform fmt -recursive', 'terraform validate', 'terraform plan -out tfplan', 'terraform apply tfplan', 'terraform output public_ip'].forEach(function (c) { $('#tf-cmds').append(cmdRow(c)); });
+  evidence('#ev-terraform', 'terraform-validate.png', 'terraform validate: configuration is valid');
+
+  /* ---- pipeline simulation ---- */
+  var stages = [], kase = 'cosmetic';
+  var DIFFS = {
+    cosmetic: '<span class="d">-  &lt;h1&gt;Unsafe agents don\'t get merged.&lt;/h1&gt;</span>\n<span class="a">+  &lt;h1&gt;Unsafe agents never get merged.&lt;/h1&gt;</span>',
+    bad: '<span class="d">-ACTIVE_VERSION = "v1"</span>\n<span class="a">+ACTIVE_VERSION = "v2"</span>'
+  };
+  function showDiff() {
+    var head = kase === 'bad' ? '--- clineval/agent.py\n' : '--- public/index.html\n';
+    $('#diff').innerHTML = head + DIFFS[kase];   // static, trusted strings above
+  }
+  function buildPipe(names) {
+    var p = $('#pipe'); p.replaceChildren(); stages = [];
+    names.forEach(function (n) { var s = el('div', 'stg'), d = el('span', 'dot'), b = el('b', '', n), sm = el('small', '', 'waiting'); s.append(d, b, sm); p.append(s); stages.push({ name: n, node: s, sm: sm }); });
+  }
+  function mark(st, cls, text) { st.node.className = 'stg ' + cls; st.sm.textContent = text; }
+  function log(t) { var l = $('#log'); l.textContent += t + '\n'; l.scrollTop = l.scrollHeight; }
+  document.querySelectorAll('#choices button').forEach(function (b) {
+    b.onclick = function () { kase = b.dataset.case; document.querySelectorAll('#choices button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); }); showDiff(); };
+  });
+  showDiff();
+  var running = false;
+  async function push() {
+    if (running || !stages.length) return; running = true; $('#push').disabled = true;
+    stages.forEach(function (s) { mark(s, '', 'waiting'); });
+    $('#log').textContent = ''; $('#outcome').replaceChildren(el('p', 'note', 'Running...'));
+    log('$ git push origin main   (' + (kase === 'bad' ? 'agent change' : 'landing headline') + ')');
+    var failed = false, report = null;
+    for (var i = 0; i < stages.length; i++) {
+      var st = stages[i];
+      if (/azure/i.test(st.name)) { mark(st, 'skip', 'skipped (target: local)'); continue; }
+      if (failed) { mark(st, 'skip', 'not run'); continue; }
+      mark(st, 'run', 'running'); log('[' + st.name + '] started');
+      await sleep(/gate/i.test(st.name) ? 300 : 450);
+      if (/gate/i.test(st.name)) {
+        try {
+          var r = await fetch('/api/gate/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: kase === 'bad' ? 'v2' : 'v1', trials: 5 }) });
+          if (!r.ok) throw new Error(await r.text()); report = await r.json();
+        } catch (e) { mark(st, 'fail', 'error'); log('[' + st.name + '] request failed: ' + e.message); failed = true; continue; }
+        log('$ python -m clineval.cli gate\n' + report.report.split('\n').filter(function (l) { return l.indexOf('- [') === 0; }).join('\n'));
+        if (report.exit_code === 1) { mark(st, 'fail', 'BLOCKED, exit 1'); log('[' + st.name + '] FAILED (exit code 1)'); failed = true; }
+        else { mark(st, 'ok', 'passed, exit 0'); log('[' + st.name + '] passed'); }
+      } else { mark(st, 'ok', 'passed'); log('[' + st.name + '] ok'); }
+    }
+    var out = $('#outcome'); out.replaceChildren();
+    var v = el('p', 'verdict ' + (failed ? 'block' : 'pass'), failed ? 'Merge blocked' : 'Merge allowed');
+    out.append(v, el('p', 'note', failed ? 'Deploy and smoke test never ran, so the live app is untouched.' : 'Deploy and smoke test ran. The change is live.'));
+    if (report) {
+      out.append(el('p', 'note', 'Safety pass rate ' + (report.metrics.safety.candidate * 100).toFixed(1) + '% against a baseline of ' + (report.metrics.safety.baseline * 100).toFixed(1) + '%. New critical findings: ' + report.new_critical.length + '.'));
+    }
+    running = false; $('#push').disabled = false;
+  }
+  $('#push').onclick = push;
+  buildPipe(['Checkout', 'Build', 'Unit Tests', 'Terraform Validate', 'Eval Gate', 'Deploy (local)', 'Deploy to Azure VM', 'Smoke Test']);
+  evidence('#ev-green', 'jenkins-green.png', 'Real Jenkins run: all stages green');
+  evidence('#ev-red', 'jenkins-red.png', 'Real Jenkins run: blocked at Eval Gate');
+  evidence('#ev-report', 'gate-report.png', 'The archived gate report for the blocked build');
+
+  /* ---- deployment cards ---- */
+  function health(base, card, name, extra) {
+    var s = el('div', 'stat'), d = el('span', 'dot wait'), t = el('b', '', 'Checking...'); s.append(d, t);
+    card.append(s);
+    return fetch(base + '/api/health', { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (j) {
+      d.className = 'dot ok'; t.textContent = 'Healthy, v' + j.version + ', agent ' + j.active_agent; return j;
+    }).catch(function () { d.className = 'dot bad'; t.textContent = 'Not reachable'; });
+  }
+  var here = $('#card-live'); here.append(el('h3', '', 'This page'), el('p', 'soft', 'Served by the same FastAPI app that holds the gate: ' + location.host + '.')); health('', here);
+  var vc = $('#card-vercel'); vc.append(el('h3', '', 'Vercel'));
+  if (CFG.vercel) { vc.append(el('p', 'soft', CFG.vercel)); health(CFG.vercel.replace(/\/$/, ''), vc); var vl = el('a', 'btn', 'Open'); vl.href = CFG.vercel; vl.target = '_blank'; vl.rel = 'noopener'; vl.style.marginTop = '12px'; vc.append(vl); }
+  else { var onV = /vercel\.app$/.test(location.hostname); vc.append(el('p', 'soft', onV ? 'You are viewing the Vercel deployment right now.' : 'Not set yet. After deploying, put the URL in public/demo-config.js.')); }
+  var ac = $('#card-azure'); ac.append(el('h3', '', 'Azure VM'));
+  var az = (R.azure || {});
+  if (az.url) { ac.append(el('p', 'soft', az.url)); health(az.url.replace(/\/$/, ''), ac); var al = el('a', 'btn', 'Open'); al.href = az.url; al.target = '_blank'; al.rel = 'noopener'; al.style.marginTop = '12px'; ac.append(al); }
+  else {
+    var s2 = el('div', 'stat'); s2.append(el('span', 'dot wait'), el('b', '', 'Not provisioned yet')); ac.append(s2,
+      el('p', 'soft', 'The Terraform is validated and the pipeline already has an Azure deploy stage. It needs an Azure subscription to apply.'),
+      el('p', 'soft', 'Once available: terraform apply, then run the pipeline with DEPLOY_TARGET=azure.'));
+  }
+  evidence('#ev-github', 'github-repo.png', 'GitHub repository: terraform/ modules and the Jenkinsfile');
+  evidence('#ev-azure', 'azure-portal.png', 'Azure portal: resources created by Terraform');
+
+  /* ---- certification ---- */
+  var ce = R.certification || {}, cc = $('#card-cert');
+  if (ce.course) {
+    cc.append(el('h3', '', ce.course), el('p', 'soft', ce.issuer || ''));
+    var pr = el('div', 'prog'), bar = el('i'); bar.style.width = Math.max(0, Math.min(100, ce.completion || 0)) + '%'; pr.append(bar);
+    cc.append(pr, el('p', '', (ce.completion || 0) + '% complete'));
+    if (ce.url) { var cl = el('a', 'btn', 'View certificate'); cl.href = ce.url; cl.target = '_blank'; cl.rel = 'noopener'; cl.style.marginTop = '12px'; cc.append(cl); }
+  } else { cc.append(el('h3', '', 'Not added yet'), el('p', 'soft', 'Set the course name, issuer, completion and certificate link in public/demo-config.js, and add public/evidence/certificate.png.')); }
+  evidence('#ev-cert', 'certificate.png', 'Completion certificate');
+
+  /* ---- run-it-yourself commands ---- */
+  ['pip install -r requirements-dev.txt', 'pytest -q', 'python -m clineval.cli gate', 'uvicorn clineval.api:app --reload'].forEach(function (c) { $('#run-cmds').append(cmdRow(c)); });
+
+  /* ---- presenter timer + keys ---- */
+  var secs = 0, ticking = false, tid = null, limit = (CFG.timerMinutes || 10) * 60, tb = $('#timer');
+  function fmt() { var m = Math.floor(secs / 60), s = secs % 60; tb.textContent = m + ':' + (s < 10 ? '0' : '') + s; tb.classList.toggle('warn', secs > limit); }
+  function toggleTimer() { ticking = !ticking; if (ticking) tid = setInterval(function () { secs++; fmt(); }, 1000); else clearInterval(tid); }
+  tb.onclick = toggleTimer; tb.ondblclick = function () { secs = 0; fmt(); };
+  var jump = { '1': '#terraform', '2': '#cicd', '3': '#azure', '4': '#cert', '5': '#docs' };
+  document.addEventListener('keydown', function (e) {
+    if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+    var k = e.key.toLowerCase();
+    if (jump[k]) { location.hash = jump[k]; }
+    else if (k === 't') toggleTimer();
+    else if (k === 's') { location.hash = '#cicd'; push(); }
+  });
+  fmt();
+
+  /* ---- nav highlight + entrance ---- */
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }); }, { threshold: .08 });
+    document.querySelectorAll('[data-reveal]').forEach(function (n) { io.observe(n); });
+    var navIo = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) document.querySelectorAll('#nav a').forEach(function (a) { a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id); }); }); }, { rootMargin: '-40% 0px -55% 0px' });
+    document.querySelectorAll('section.block').forEach(function (n) { navIo.observe(n); });
+  } else { document.querySelectorAll('[data-reveal]').forEach(function (n) { n.classList.add('in'); }); }
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-"""Regenerates clineval/static/landing-data.js from REAL runs so the landing-page
+"""Regenerates public/landing-data.js from REAL runs so the landing-page
 fragment shows true gate output. Run:  python scripts/build_landing_data.py"""
 import json, sys
 from pathlib import Path
@@ -24,5 +24,5 @@ for name in ("v1", "v2"):
                    "final": r["trials"][0]["final"], "tools": r["trials"][0]["tools"]} for r in run["results"]],
         "report": __import__("clineval.stats", fromlist=["to_markdown"]).to_markdown(cmp),
     }
-(ROOT / "clineval/static/landing-data.js").write_text("window.GATE_DATA = " + json.dumps(out, indent=1) + ";\n")
+(ROOT / "public/landing-data.js").write_text("window.GATE_DATA = " + json.dumps(out, indent=1) + ";\n")
 print("wrote landing-data.js")

@@ -1,0 +1,11 @@
+venv
+.agents
+.taste-skill
+.github
+terraform
+jenkins
+tests
+data
+__pycache__
+*.pyc
+gate-*

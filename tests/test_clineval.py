@@ -139,4 +139,43 @@ def test_ui_routes_are_served():
     c = TestClient(app)
     assert "ClinEval-CI" in c.get("/").text and "landing-data.js" in c.get("/").text
     assert "Playground" in c.get("/app").text
+    assert "Project walkthrough" in c.get("/demo").text or "From commit to production" in c.get("/demo").text
     assert c.get("/landing-data.js").text.startswith("window.GATE_DATA")
+    assert c.get("/scenes.js").text.count("scene.splinecode") == 3
+    assert "Jenkinsfile" in c.get("/files.json").json()
+
+
+def test_gate_simulator_is_stateless_and_correct():
+    c = TestClient(app)
+    bad = c.post("/api/gate/simulate", json={"agent": "v2", "trials": 3}).json()
+    ok = c.post("/api/gate/simulate", json={"agent": "v1", "trials": 3}).json()
+    assert bad["verdict"] == "BLOCK" and bad["exit_code"] == 1 and bad["new_critical"]
+    assert ok["verdict"] == "PASS" and ok["exit_code"] == 0
+    assert bad["report"].startswith("# ClinEval-CI report")
+    assert c.post("/api/gate/simulate", json={"agent": "zzz"}).status_code == 400
+
+
+def test_seed_demo_is_idempotent(tmp_path):
+    from clineval.api import seed_demo
+    st = Store(str(tmp_path / "seed.db"))
+    assert seed_demo(st) is True
+    runs = st.list_runs()
+    assert len(runs) == 2 and st.get_baseline_id() == 1
+    assert seed_demo(st) is False and len(st.list_runs()) == 2
+    assert st.verify_chain()["valid"]
+
+
+def test_cors_allows_get_only():
+    c = TestClient(app)
+    r = c.get("/api/health", headers={"Origin": "https://example.com"})
+    assert r.headers.get("access-control-allow-origin") == "*"
+
+
+def test_vercel_entrypoint_imports(tmp_path, monkeypatch):
+    import importlib, sys
+    monkeypatch.setenv("CLINEVAL_DB", str(tmp_path / "v.db"))
+    monkeypatch.setenv("CLINEVAL_AUTOSEED", "1")
+    for m in [m for m in sys.modules if m.startswith("clineval.api")]:
+        del sys.modules[m]
+    mod = importlib.import_module("clineval.api")
+    assert len(mod.store.list_runs()) == 2          # auto-seeded on import, as on a Vercel cold start
