@@ -14,3 +14,5 @@ terraform/backend.tf
 terraform/tfplan
 .agents/
 .taste-skill/
+
+.vercel
